@@ -1,0 +1,44 @@
+:root {
+  --ink: #17231d;
+  --muted: #5a675f;
+  --line: rgba(31, 44, 35, 0.14);
+  --accent: #1f4e37;
+  --accent-2: #b8782f;
+  --accent-3: #2f6f8f;
+  --danger: #9b2f2f;
+  --shadow: 0 12px 28px rgba(17, 33, 24, 0.08);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  background:
+    linear-gradient(180deg, #f4f7f2 0%, #f8faf7 42%, #f1f4ee 100%),
+    repeating-linear-gradient(90deg, rgba(31, 78, 55, 0.03) 0 1px, transparent 1px 72px),
+    repeating-linear-gradient(180deg, rgba(31, 78, 55, 0.03) 0 1px, transparent 1px 72px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}

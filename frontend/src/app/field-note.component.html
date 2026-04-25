@@ -1,0 +1,412 @@
+<div class="console-shell">
+  <header class="masthead">
+    <div class="masthead-copy">
+      <p class="eyebrow">Field operations API console</p>
+      <h1>Run the four endpoint flow</h1>
+      <p class="lede">
+        Submit a field note, browse SOPs, generate a recommendation, and inspect live map state from one workspace.
+      </p>
+    </div>
+
+    <div class="status-rail" aria-label="Current session state">
+      <div class="status-chip">
+        <span>Note</span>
+        <strong>{{ noteId || 'none' }}</strong>
+      </div>
+      <div class="status-chip">
+        <span>SOP</span>
+        <strong>{{ selectedDocId || 'none' }}</strong>
+      </div>
+      <div class="status-chip">
+        <span>SOPs</span>
+        <strong>{{ sopResult?.total || 0 }}</strong>
+      </div>
+      <div class="status-chip">
+        <span>Plots</span>
+        <strong>{{ mapStateResult?.plots?.length || 0 }}</strong>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tab-bar" aria-label="Endpoint navigation">
+    <button type="button" [class.active]="activeTab === 'field-note'" (click)="setTab('field-note')">Field note</button>
+    <button type="button" [class.active]="activeTab === 'recommendations'" (click)="setTab('recommendations')">Recommendation</button>
+    <button type="button" [class.active]="activeTab === 'sops'" (click)="setTab('sops')">SOP library</button>
+    <button type="button" [class.active]="activeTab === 'map-state'" (click)="setTab('map-state')">Map state</button>
+  </nav>
+
+  <main class="workspace">
+    <section *ngIf="activeTab === 'field-note'" class="pane">
+      <div class="pane-grid">
+        <form class="surface form-surface" (ngSubmit)="submitFieldNote()">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">POST /field-note</p>
+              <h2>Submit an observation</h2>
+            </div>
+            <span class="endpoint-pill">Top 5 matches</span>
+          </div>
+
+          <label class="field">
+            <span>Observation</span>
+            <textarea
+              [(ngModel)]="fieldNoteObservation"
+              name="fieldNoteObservation"
+              rows="6"
+              placeholder="Describe what you saw in the field"
+            ></textarea>
+          </label>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>Region</span>
+              <input [(ngModel)]="fieldNoteRegion" name="fieldNoteRegion" placeholder="India" />
+            </label>
+
+            <label class="field">
+              <span>Crop type</span>
+              <input [(ngModel)]="fieldNoteCropType" name="fieldNoteCropType" placeholder="Pine plantation" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button type="submit" [disabled]="fieldNoteLoading || !fieldNoteObservation.trim() || !fieldNoteRegion.trim() || !fieldNoteCropType.trim()">
+              {{ fieldNoteLoading ? 'Submitting...' : 'Submit note' }}
+            </button>
+          </div>
+
+          <p class="status-text" *ngIf="fieldNoteLoading">Posting observation and ranking SOPs.</p>
+          <p class="error-text" *ngIf="fieldNoteError">{{ fieldNoteError }}</p>
+        </form>
+
+        <section class="surface result-surface">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Matches</p>
+              <h2>Ranked SOPs</h2>
+            </div>
+            <span class="endpoint-pill">{{ fieldNoteResult?.matches?.length || 0 }} returned</span>
+          </div>
+
+          <ng-container *ngIf="fieldNoteResult; else noFieldNote">
+            <div class="meta-strip">
+              <span>Note ID: {{ fieldNoteResult.note_id }}</span>
+            </div>
+
+            <ul class="match-list">
+              <li
+                *ngFor="let match of fieldNoteResult.matches; let index = index; trackBy: trackByIndex"
+                class="match-item"
+                [class.selected]="match.id === selectedDocId"
+              >
+                <div class="match-head">
+                  <div>
+                    <strong>{{ match.title }}</strong>
+                    <p class="muted">
+                      {{ match.domain }} &middot; {{ match.category }} &middot; {{ match.region }} &middot; {{ match.crop_or_forest_type }}
+                    </p>
+                  </div>
+                  <span class="score-pill">{{ match.relevance_score }}</span>
+                </div>
+
+                <p class="snippet">{{ match.evidence_snippet }}</p>
+
+                <div class="match-foot">
+                  <span class="muted">Chars {{ match.char_start }} to {{ match.char_end }}</span>
+                  <button type="button" class="link-button" (click)="selectMatch(match)">Use for recommendation</button>
+                </div>
+              </li>
+            </ul>
+          </ng-container>
+
+          <ng-template #noFieldNote>
+            <p class="empty-state">Submit a field note to see the top five SOP matches.</p>
+          </ng-template>
+        </section>
+      </div>
+    </section>
+
+    <section *ngIf="activeTab === 'recommendations'" class="pane">
+      <div class="pane-grid">
+        <form class="surface form-surface" (ngSubmit)="loadRecommendation()">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">GET /recommendation</p>
+              <h2>Generate actions</h2>
+            </div>
+            <span class="endpoint-pill">
+              {{ recommendationResult ? (recommendationResult.fallback_used ? 'Fallback' : 'LLM-ready') : 'Waiting' }}
+            </span>
+          </div>
+
+          <label class="field">
+            <span>Note ID</span>
+            <input [(ngModel)]="noteId" name="noteId" placeholder="note-..." />
+          </label>
+
+          <label class="field">
+            <span>SOP ID</span>
+            <select [(ngModel)]="selectedDocId" name="selectedDocId">
+              <option value="">Choose a document</option>
+              <option *ngFor="let match of fieldNoteResult?.matches || []; trackBy: trackByIndex" [value]="match.id">
+                {{ match.id }} - {{ match.title }}
+              </option>
+              <option *ngFor="let sop of sopResult?.sops || []; trackBy: trackByIndex" [value]="sop.id">
+                {{ sop.id }} - {{ sop.title }}
+              </option>
+            </select>
+          </label>
+
+          <div class="actions">
+            <button type="submit" [disabled]="recommendationLoading || !noteId.trim() || !selectedDocId.trim()">
+              {{ recommendationLoading ? 'Generating...' : 'Generate recommendation' }}
+            </button>
+          </div>
+
+          <p class="status-text" *ngIf="recommendationLoading">Pulling a recommendation from the matched SOP.</p>
+          <p class="error-text" *ngIf="recommendationError">{{ recommendationError }}</p>
+
+          <div class="inline-summary" *ngIf="selectedDocId">
+            <span>Selected SOP</span>
+            <strong>{{ selectedMatch?.title || selectedDocId }}</strong>
+          </div>
+        </form>
+
+        <section class="surface result-surface">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Response</p>
+              <h2>Action bullets and citations</h2>
+            </div>
+            <span class="endpoint-pill" *ngIf="recommendationResult">{{ recommendationResult.generated_at }}</span>
+          </div>
+
+          <ng-container *ngIf="recommendationResult; else noRecommendation">
+            <div class="meta-strip">
+              <span>Recommendation ID: {{ recommendationResult.recommendation_id }}</span>
+              <span>Doc ID: {{ recommendationResult.doc_id }}</span>
+              <span>Fallback used: {{ recommendationResult.fallback_used ? 'yes' : 'no' }}</span>
+            </div>
+
+            <ol class="bullet-list">
+              <li *ngFor="let bullet of recommendationResult.bullets; let index = index; trackBy: trackByIndex">
+                <span>{{ bullet }}</span>
+              </li>
+            </ol>
+
+            <div class="citation-list">
+              <div class="citation-item" *ngFor="let citation of recommendationResult.citations; trackBy: trackByIndex">
+                <strong>Bullet {{ citation.bullet_index + 1 }}</strong>
+                <p>{{ citation.quoted_text }}</p>
+                <div class="citation-foot">
+                  <span class="muted">Range {{ formatRange(citation.source_char_range) }}</span>
+                  <span class="confidence-pill">{{ citation.confidence }}</span>
+                </div>
+              </div>
+            </div>
+          </ng-container>
+
+          <ng-template #noRecommendation>
+            <p class="empty-state">Pick a note and SOP, then generate actionable bullets from the document.</p>
+          </ng-template>
+        </section>
+      </div>
+    </section>
+
+    <section *ngIf="activeTab === 'sops'" class="pane">
+      <div class="pane-grid">
+        <form class="surface form-surface" (ngSubmit)="loadSops()">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">GET /sops</p>
+              <h2>Explore the library</h2>
+            </div>
+            <span class="endpoint-pill">Filters optional</span>
+          </div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span>Region</span>
+              <input [(ngModel)]="sopFilters.region" name="sopRegion" list="region-options" placeholder="India" />
+            </label>
+            <label class="field">
+              <span>Domain</span>
+              <input [(ngModel)]="sopFilters.domain" name="sopDomain" list="domain-options" placeholder="Forestry" />
+            </label>
+            <label class="field">
+              <span>Category</span>
+              <input [(ngModel)]="sopFilters.category" name="sopCategory" list="category-options" placeholder="Pest management" />
+            </label>
+            <label class="field">
+              <span>Crop type</span>
+              <input [(ngModel)]="sopFilters.crop_type" name="sopCropType" list="crop-options" placeholder="Pine plantation" />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Limit</span>
+            <input [(ngModel)]="sopFilters.limit" name="sopLimit" type="number" min="1" max="100" />
+          </label>
+
+          <div class="actions">
+            <button type="submit" [disabled]="sopLoading">
+              {{ sopLoading ? 'Searching...' : 'Search SOPs' }}
+            </button>
+            <button type="button" class="secondary" (click)="resetSopFilters()">Reset filters</button>
+          </div>
+
+          <p class="status-text" *ngIf="sopLoading">Loading SOP metadata and filter options.</p>
+          <p class="error-text" *ngIf="sopError">{{ sopError }}</p>
+
+          <datalist id="region-options">
+            <option *ngFor="let value of sopResult?.filters_available?.regions || []" [value]="value"></option>
+          </datalist>
+          <datalist id="domain-options">
+            <option *ngFor="let value of sopResult?.filters_available?.domains || []" [value]="value"></option>
+          </datalist>
+          <datalist id="category-options">
+            <option *ngFor="let value of sopResult?.filters_available?.categories || []" [value]="value"></option>
+          </datalist>
+          <datalist id="crop-options">
+            <option *ngFor="let value of sopResult?.filters_available?.crop_or_forest_types || []" [value]="value"></option>
+          </datalist>
+        </form>
+
+        <section class="surface result-surface">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Results</p>
+              <h2>{{ sopResult?.total || 0 }} SOPs found</h2>
+            </div>
+            <span class="endpoint-pill">{{ sopResult?.sops?.length || 0 }} shown</span>
+          </div>
+
+          <div class="chip-row" *ngIf="sopResult?.filters_available as filters">
+            <span *ngFor="let region of filters.regions || []" class="filter-chip">{{ region }}</span>
+            <span *ngFor="let domain of filters.domains || []" class="filter-chip">{{ domain }}</span>
+            <span *ngFor="let category of filters.categories || []" class="filter-chip">{{ category }}</span>
+          </div>
+
+          <ng-container *ngIf="sopResult?.sops?.length; else noSops">
+            <ul class="sop-list">
+              <li
+                *ngFor="let sop of sopResult?.sops || []; trackBy: trackByIndex"
+                class="sop-item"
+                [class.selected]="sop.id === selectedDocId"
+              >
+                <div class="match-head">
+                  <div>
+                    <strong>{{ sop.title }}</strong>
+                    <p class="muted">{{ sop.region }} &middot; {{ sop.domain }} &middot; {{ sop.category }}</p>
+                  </div>
+                  <button type="button" class="link-button" (click)="selectSop(sop)">Use doc</button>
+                </div>
+
+                <p class="snippet">{{ sop.preview }}</p>
+
+                <div class="keyword-row">
+                  <span *ngFor="let keyword of sop.keywords" class="keyword-pill">{{ keyword }}</span>
+                </div>
+              </li>
+            </ul>
+          </ng-container>
+
+          <ng-template #noSops>
+            <p class="empty-state">Try a region, domain, or category filter to inspect the SOP set.</p>
+          </ng-template>
+        </section>
+      </div>
+    </section>
+
+    <section *ngIf="activeTab === 'map-state'" class="pane">
+      <div class="pane-grid">
+        <form class="surface form-surface" (ngSubmit)="loadMapState()">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">GET /map-state</p>
+              <h2>Inspect active plots</h2>
+            </div>
+            <span class="endpoint-pill">Plot filter optional</span>
+          </div>
+
+          <label class="field">
+            <span>Plot ID</span>
+            <input [(ngModel)]="mapPlotId" name="mapPlotId" placeholder="plot-001" />
+          </label>
+
+          <div class="actions">
+            <button type="submit" [disabled]="mapLoading">
+              {{ mapLoading ? 'Loading...' : 'Load map state' }}
+            </button>
+          </div>
+
+          <p class="status-text" *ngIf="mapLoading">Pulling plot geometry and recommendation state.</p>
+          <p class="error-text" *ngIf="mapError">{{ mapError }}</p>
+        </form>
+
+        <section class="surface result-surface">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Plots</p>
+              <h2>{{ mapStateResult?.plots?.length || 0 }} active plot(s)</h2>
+            </div>
+            <span class="endpoint-pill" *ngIf="mapPlotId">Filter: {{ mapPlotId }}</span>
+          </div>
+
+          <ng-container *ngIf="mapStateResult?.plots?.length; else noPlots">
+            <article class="plot-item" *ngFor="let plot of mapStateResult?.plots || []; trackBy: trackByIndex">
+              <div class="plot-head">
+                <div>
+                  <strong>{{ plot.name }}</strong>
+                  <p class="muted">{{ plot.plot_id }} &middot; {{ plot.region }} &middot; {{ plot.crop_type }}</p>
+                </div>
+                <span class="score-pill">{{ plot.hectares }} ha</span>
+              </div>
+
+              <p class="muted">
+                Coordinates:
+                {{ plot.coordinates.latitude | number:'1.4-4' }},
+                {{ plot.coordinates.longitude | number:'1.4-4' }}
+              </p>
+
+              <div class="plot-columns">
+                <div class="mini-panel">
+                  <p class="section-kicker">Last observation</p>
+                  <ng-container *ngIf="plot.last_observation; else noObservation">
+                    <strong>{{ plot.last_observation.note_id }}</strong>
+                    <p>{{ plot.last_observation.text }}</p>
+                    <span class="muted">{{ plot.last_observation.timestamp }}</span>
+                  </ng-container>
+                  <ng-template #noObservation>
+                    <p class="muted">No observation recorded yet.</p>
+                  </ng-template>
+                </div>
+
+                <div class="mini-panel">
+                  <p class="section-kicker">Active recommendation</p>
+                  <ng-container *ngIf="plot.active_recommendation; else noRecommendationState">
+                    <strong>{{ plot.active_recommendation.title }}</strong>
+                    <div class="inline-summary">
+                      <span>Doc: {{ plot.active_recommendation.doc_id }}</span>
+                      <span class="confidence-pill">{{ plot.active_recommendation.severity }}</span>
+                    </div>
+                    <ul class="compact-list">
+                      <li *ngFor="let bullet of plot.active_recommendation.bullets">{{ bullet }}</li>
+                    </ul>
+                  </ng-container>
+                  <ng-template #noRecommendationState>
+                    <p class="muted">No recommendation has been activated for this plot.</p>
+                  </ng-template>
+                </div>
+              </div>
+            </article>
+          </ng-container>
+
+          <ng-template #noPlots>
+            <p class="empty-state">Map state is empty for the selected filter.</p>
+          </ng-template>
+        </section>
+      </div>
+    </section>
+  </main>
+</div>
